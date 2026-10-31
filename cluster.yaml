@@ -1,0 +1,30 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: togglemaster-eks
+  region: us-east-1
+
+iam:
+  withOIDC: true
+
+managedNodeGroups:
+  - name: togglemaster-nodes
+
+    instanceType: t3.medium
+
+    minSize: 1
+    desiredCapacity: 2
+    maxSize: 4
+
+    volumeSize: 30
+
+    privateNetworking: false
+
+    labels:
+      role: worker
+      project: togglemaster
+
+    tags:
+      Project: togglemaster
+      Environment: challenge

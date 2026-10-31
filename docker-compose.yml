@@ -1,0 +1,144 @@
+services:
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: togglemaster
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev123}
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+      - ./auth-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U togglemaster -d authdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  flag-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: flagdb
+      POSTGRES_USER: togglemaster
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev123}
+    volumes:
+      - flag-db-data:/var/lib/postgresql/data
+      - ./flag-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U togglemaster -d flagdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  targeting-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: targetingdb
+      POSTGRES_USER: togglemaster
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev123}
+    volumes:
+      - targeting-db-data:/var/lib/postgresql/data
+      - ./targeting-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U togglemaster -d targetingdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  auth-service:
+    build: ./auth-service
+    environment:
+      PORT: "8001"
+      DATABASE_URL: postgres://togglemaster:${POSTGRES_PASSWORD:-localdev123}@auth-db:5432/authdb?sslmode=disable
+      MASTER_KEY: ${MASTER_KEY:?Defina MASTER_KEY no arquivo .env}
+    ports:
+      - "8001:8001"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  flag-service:
+    build: ./flag-service
+    environment:
+      PORT: "8002"
+      DATABASE_URL: postgres://togglemaster:${POSTGRES_PASSWORD:-localdev123}@flag-db:5432/flagdb?sslmode=disable
+      AUTH_SERVICE_URL: http://auth-service:8001
+    ports:
+      - "8002:8002"
+    depends_on:
+      flag-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    restart: unless-stopped
+
+  targeting-service:
+    build: ./targeting-service
+    environment:
+      PORT: "8003"
+      DATABASE_URL: postgres://togglemaster:${POSTGRES_PASSWORD:-localdev123}@targeting-db:5432/targetingdb?sslmode=disable
+      AUTH_SERVICE_URL: http://auth-service:8001
+    ports:
+      - "8003:8003"
+    depends_on:
+      targeting-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    restart: unless-stopped
+
+  evaluation-service:
+    build: ./evaluation-service
+    environment:
+      PORT: "8004"
+      REDIS_URL: redis://redis:6379
+      FLAG_SERVICE_URL: http://flag-service:8002
+      TARGETING_SERVICE_URL: http://targeting-service:8003
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_SQS_URL: ${AWS_SQS_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    ports:
+      - "8004:8004"
+    depends_on:
+      redis:
+        condition: service_healthy
+      flag-service:
+        condition: service_started
+      targeting-service:
+        condition: service_started
+    restart: unless-stopped
+
+  analytics-service:
+    build: ./analytics-service
+    environment:
+      PORT: "8005"
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_SQS_URL: ${AWS_SQS_URL:?Defina AWS_SQS_URL no arquivo .env}
+      AWS_DYNAMODB_TABLE: ${AWS_DYNAMODB_TABLE:-ToggleMasterAnalytics}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    ports:
+      - "8005:8005"
+    depends_on:
+      - evaluation-service
+    restart: unless-stopped
+
+volumes:
+  auth-db-data:
+  flag-db-data:
+  targeting-db-data:
+  redis-data:

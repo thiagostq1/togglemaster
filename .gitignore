@@ -1,0 +1,12 @@
+
+# Credenciais e arquivos locais
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+**/!.env.example
+*.pem
+*.key
+credentials
+.aws/
